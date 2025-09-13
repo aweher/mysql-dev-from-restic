@@ -1,0 +1,43 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Docker volumes and data
+mysql_data/
+logs/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.pid
+*.lock
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Docker build context (if needed)
+.dockerignore.bak
+
+# SQL files downloaded from Restic repository
+sqlfiles/
+CLAUDE.md

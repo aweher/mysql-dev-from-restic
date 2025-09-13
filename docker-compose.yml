@@ -1,0 +1,75 @@
+# Copyright (c) 2025 Ariel S. Weher <ariel@weher.net>
+# Este código es propietario y confidencial. Todos los derechos reservados.
+
+---
+services:
+  mysql-dev:
+    build: 
+      context: .
+      args:
+        RESTIC_REPOSITORY: "${RESTIC_REPOSITORY}"
+        RESTIC_PASSWORD: "${RESTIC_PASSWORD}"
+        DB_LIST: "${DB_LIST}"
+        RESTIC_HOST: "${RESTIC_HOST}"
+        RESTIC_TAG: "${RESTIC_TAG}"
+        RESTIC_SNAPSHOT: "${RESTIC_SNAPSHOT}"
+    container_name: backup-mysql-dev
+    ports:
+      - "3306:3306"
+    environment:      
+      # MySQL configuration
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-backup_dev_2024}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-}"
+      MYSQL_USER: "${MYSQL_USER:-dev_user}"
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:-dev_password}"
+      
+      # PXC specific (optional)
+      CLUSTER_NAME: "${CLUSTER_NAME:-dev-cluster}"
+      XTRABACKUP_PASSWORD: "${XTRABACKUP_PASSWORD:-}"
+      
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./logs:/var/log/mysql
+      
+    networks:
+      - backup-dev
+      
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-backup_dev_2024}"]
+      timeout: 20s
+      retries: 10
+      interval: 10s
+      start_period: 40s
+
+  # Opcional: phpMyAdmin para administración web
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:5
+    container_name: backup-phpmyadmin
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: mysql-dev
+      PMA_PORT: 3306
+      PMA_USER: "${MYSQL_USER:-dev_user}"
+      PMA_PASSWORD: "${MYSQL_PASSWORD:-dev_password}"
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-backup_dev_2024}"
+    depends_on:
+      mysql-dev:
+        condition: service_healthy
+    networks:
+      - backup-dev
+    restart: unless-stopped
+    profiles:
+      - admin
+
+volumes:
+  mysql_data:
+    driver: local
+    name: backup_mysql_dev_data
+
+networks:
+  backup-dev:
+    driver: bridge
+    name: backup-dev-network

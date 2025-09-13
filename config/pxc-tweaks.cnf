@@ -1,0 +1,6 @@
+# Copyright (c) 2025 Ariel S. Weher <ariel@weher.net>
+# Este código es propietario y confidencial. Todos los derechos reservados.
+
+[mysqld]
+# Optional tweaks for dev restores
+sql_mode=STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION
