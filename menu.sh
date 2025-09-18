@@ -439,6 +439,92 @@ EOF
     echo "Para conectarte, usa la opción 'Iniciar entorno'"
 }
 
+# Función para diagnosticar repositorio Restic
+diagnose_restic_repository() {
+    echo -e "${BLUE}=== Diagnóstico Repositorio Restic ===${NC}"
+
+    # Verificar si el archivo .env existe
+    if [ ! -f ".env" ]; then
+        echo -e "${RED}❌ Archivo .env no encontrado${NC}"
+        return 1
+    fi
+
+    # Cargar variables
+    source .env
+    if [ -z "$RESTIC_REPOSITORY" ] || [ -z "$RESTIC_PASSWORD" ]; then
+        echo -e "${RED}❌ Variables RESTIC_REPOSITORY o RESTIC_PASSWORD no configuradas en .env${NC}"
+        return 1
+    fi
+
+    export RESTIC_PASSWORD
+    export RESTIC_CACHE_DIR="${HOME}/.cache/restic"
+
+    echo "📡 Conectando al repositorio: $RESTIC_REPOSITORY"
+    echo ""
+
+    # Verificar conectividad básica
+    echo "🔍 Verificando conectividad..."
+    if ! restic -r "$RESTIC_REPOSITORY" snapshots >/dev/null 2>&1; then
+        echo -e "${RED}❌ No se pudo conectar al repositorio${NC}"
+        echo "Verifica las credenciales y la conectividad de red"
+        return 1
+    fi
+    echo -e "${GREEN}✅ Conectividad OK${NC}"
+    echo ""
+
+    # Mostrar estadísticas del repositorio
+    echo "📊 Estadísticas del repositorio:"
+    restic -r "$RESTIC_REPOSITORY" stats --quiet || echo "No se pudieron obtener estadísticas"
+    echo ""
+
+    # Listar todos los snapshots con sus tags
+    echo "📋 Snapshots disponibles:"
+    restic -r "$RESTIC_REPOSITORY" snapshots --compact || {
+        echo -e "${RED}❌ No se pudieron listar los snapshots${NC}"
+        return 1
+    }
+    echo ""
+
+    # Mostrar tags únicos disponibles
+    echo "🏷️  Tags disponibles en el repositorio:"
+    restic -r "$RESTIC_REPOSITORY" snapshots --json 2>/dev/null | \
+        jq -r '.[].tags[]?' 2>/dev/null | sort -u | \
+        while read -r tag; do
+            [ -n "$tag" ] && echo "   └─ $tag"
+        done || echo "   └─ No se pudieron obtener los tags"
+    echo ""
+
+    # Verificar snapshots específicos para las bases de datos configuradas
+    if [ -n "$DB_LIST" ]; then
+        echo "🔍 Buscando snapshots para bases de datos configuradas:"
+        IFS=',' read -r -a DBS <<< "$DB_LIST"
+        for db in "${DBS[@]}"; do
+            db_trim="$(echo "$db" | xargs)"
+            echo "   🗄️  Base de datos: $db_trim"
+
+            # Buscar con tag exacto
+            local count_exact=$(restic -r "$RESTIC_REPOSITORY" snapshots --tag "$db_trim" --json 2>/dev/null | jq '. | length' 2>/dev/null || echo "0")
+            echo "      └─ Con tag '$db_trim': $count_exact snapshot(s)"
+
+            # Buscar con tag mysqldump
+            local count_mysqldump=$(restic -r "$RESTIC_REPOSITORY" snapshots --tag "mysqldump" --json 2>/dev/null | jq '. | length' 2>/dev/null || echo "0")
+            echo "      └─ Con tag 'mysqldump': $count_mysqldump snapshot(s)"
+
+            # Buscar con hostname si está configurado
+            if [ -n "$RESTIC_HOST" ]; then
+                local count_host=$(restic -r "$RESTIC_REPOSITORY" snapshots --host "$RESTIC_HOST" --json 2>/dev/null | jq '. | length' 2>/dev/null || echo "0")
+                echo "      └─ Con hostname '$RESTIC_HOST': $count_host snapshot(s)"
+            fi
+        done
+    fi
+
+    echo ""
+    echo -e "${CYAN}💡 Recomendaciones:${NC}"
+    echo "   • Si no hay snapshots con tags específicos de BD, modifica RESTIC_TAG en .env"
+    echo "   • Verifica que el hostname en RESTIC_HOST coincida con el servidor de backup"
+    echo "   • Los snapshots deben contener archivos /<database_name>.sql en la raíz"
+}
+
 # Función para descargar archivo SQL desde URL
 download_sql_from_url() {
     echo -e "${BLUE}=== Descargar SQL desde URL ===${NC}"
@@ -620,10 +706,11 @@ show_menu() {
     echo "4) 📊 Mostrar estado"
     echo "5) 🔄 Actualizar bases de datos"
     echo "6) 📥 Descargar SQL desde URL"
-    echo "7) 🗑️  Eliminar entorno (⚠️  PELIGROSO)"
-    echo "8) ❌ Salir"
+    echo "7) 🔍 Diagnosticar repositorio Restic"
+    echo "8) 🗑️  Eliminar entorno (⚠️  PELIGROSO)"
+    echo "9) ❌ Salir"
     echo ""
-    echo -n "Opción [1-8]: "
+    echo -n "Opción [1-9]: "
 }
 
 # Función principal
@@ -659,14 +746,17 @@ main() {
                 download_sql_from_url
                 ;;
             7)
-                remove_environment
+                diagnose_restic_repository
                 ;;
             8)
+                remove_environment
+                ;;
+            9)
                 echo -e "${GREEN}👋 ¡Hasta luego!${NC}"
                 exit 0
                 ;;
             *)
-                echo -e "${RED}❌ Opción inválida. Por favor selecciona 1-8.${NC}"
+                echo -e "${RED}❌ Opción inválida. Por favor selecciona 1-9.${NC}"
                 ;;
         esac
         
