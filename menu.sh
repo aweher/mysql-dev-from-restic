@@ -25,6 +25,132 @@ show_header() {
     echo ""
 }
 
+# Función para crear .env desde .env.example
+create_env_file() {
+    echo -e "${BLUE}=== Configurando archivo .env ===${NC}"
+
+    if [ ! -f ".env.example" ]; then
+        echo -e "${RED}❌ Archivo .env.example no encontrado${NC}"
+        return 1
+    fi
+
+    echo -e "${YELLOW}El archivo .env no existe. Se creará desde .env.example${NC}"
+    echo "Por favor, proporciona los siguientes valores:"
+    echo ""
+
+    # Variables requeridas
+    echo -e "${CYAN}=== Configuración Restic (REQUERIDA) ===${NC}"
+
+    read -p "URL del repositorio Restic: " restic_repo
+    while [ -z "$restic_repo" ]; do
+        echo -e "${RED}Este campo es obligatorio${NC}"
+        read -p "URL del repositorio Restic: " restic_repo
+    done
+
+    read -p "Contraseña del repositorio Restic: " restic_password
+    while [ -z "$restic_password" ]; do
+        echo -e "${RED}Este campo es obligatorio${NC}"
+        read -p "Contraseña del repositorio Restic: " restic_password
+    done
+
+    read -p "Lista de bases de datos (separadas por comas): " db_list
+    while [ -z "$db_list" ]; do
+        echo -e "${RED}Este campo es obligatorio${NC}"
+        read -p "Lista de bases de datos (separadas por comas): " db_list
+    done
+
+    echo ""
+    echo -e "${CYAN}=== Configuración MySQL ===${NC}"
+
+    read -p "Contraseña root de MySQL [password_root_mysql]: " mysql_root_password
+    mysql_root_password=${mysql_root_password:-password_root_mysql}
+
+    read -p "Usuario MySQL [dev_user]: " mysql_user
+    mysql_user=${mysql_user:-dev_user}
+
+    read -p "Contraseña usuario MySQL [dev_password]: " mysql_password
+    mysql_password=${mysql_password:-dev_password}
+
+    echo ""
+    echo -e "${CYAN}=== Configuración Opcional ===${NC}"
+
+    read -p "Hostname para filtrar snapshots (opcional): " restic_host
+
+    read -p "Tag para filtrar snapshots [mysqldump]: " restic_tag
+    restic_tag=${restic_tag:-mysqldump}
+
+    read -p "Días de retención para archivos SQL [7]: " retention_days
+    retention_days=${retention_days:-7}
+
+    read -p "Nombre del cluster [dev-cluster]: " cluster_name
+    cluster_name=${cluster_name:-dev-cluster}
+
+    # Crear archivo .env
+    echo "🔧 Creando archivo .env..."
+    cat > .env << EOF
+# Copyright (c) 2025 Ariel S. Weher <ariel@weher.net>
+# Este código es propietario y confidencial. Todos los derechos reservados.
+
+# Restic Configuration (REQUIRED)
+# URL del repositorio Restic (rest, sftp, s3, etc.)
+RESTIC_REPOSITORY=$restic_repo
+
+# Contraseña del repositorio Restic
+RESTIC_PASSWORD=$restic_password
+
+# Lista de bases de datos a restaurar (separadas por comas)
+DB_LIST=$db_list
+
+# Hostname para filtrar snapshots (opcional)
+EOF
+
+    if [ -n "$restic_host" ]; then
+        echo "RESTIC_HOST=$restic_host" >> .env
+    else
+        echo "# RESTIC_HOST=hostname-servidor.domain.com" >> .env
+    fi
+
+    cat >> .env << EOF
+
+# Tag para filtrar snapshots (por defecto: mysqldump)
+RESTIC_TAG=$restic_tag
+
+# Snapshot específico a usar (opcional, por defecto usa el más reciente)
+# RESTIC_SNAPSHOT=a58161e7
+
+# Ruta base en el snapshot donde están los dumps (opcional)
+# DUMPS_BASE_PATH=/mysql_dumps
+
+# SQL Files Retention (días)
+# Número de días para mantener archivos SQL descargados localmente
+SQLFILES_RETENTION_DAYS=$retention_days
+
+# MySQL Configuration
+# Contraseña del usuario root de MySQL
+MYSQL_ROOT_PASSWORD=$mysql_root_password
+
+# Usuario adicional de MySQL (opcional)
+MYSQL_USER=$mysql_user
+MYSQL_PASSWORD=$mysql_password
+
+# Base de datos por defecto (opcional)
+# MYSQL_DATABASE=default_db
+
+# PXC Cluster (Optional)
+# Nombre del cluster Percona XtraDB Cluster
+CLUSTER_NAME=$cluster_name
+
+# Contraseña para XtraBackup (opcional)
+# XTRABACKUP_PASSWORD=backup_password
+EOF
+
+    echo -e "${GREEN}✅ Archivo .env creado correctamente${NC}"
+    echo -e "${YELLOW}📝 Puedes editar .env manualmente si necesitas ajustar algún valor${NC}"
+    echo ""
+
+    return 0
+}
+
 # Función para mostrar el estado del entorno
 show_status() {
     echo -e "${BLUE}=== Estado del Entorno ===${NC}"
@@ -79,14 +205,50 @@ show_status() {
 # Función para iniciar el entorno
 start_environment() {
     echo -e "${BLUE}=== Iniciando Entorno ===${NC}"
-    
+
     # Verificar si el archivo .env existe
     if [ ! -f ".env" ]; then
-        echo -e "${RED}❌ Archivo .env no encontrado${NC}"
-        echo -e "${YELLOW}Por favor, copia .env.example a .env y configura las variables${NC}"
-        return 1
+        echo -e "${YELLOW}⚠️  Archivo .env no encontrado${NC}"
+        read -p "¿Deseas crear el archivo .env ahora? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            if ! create_env_file; then
+                return 1
+            fi
+        else
+            echo -e "${YELLOW}Por favor, crea manualmente .env desde .env.example${NC}"
+            return 1
+        fi
     fi
-    
+
+    # Verificar que existan archivos SQL descargados
+    echo "🔍 Verificando archivos SQL descargados..."
+    if [ ! -d "sqlfiles" ] || [ -z "$(ls -A sqlfiles/*.sql 2>/dev/null)" ]; then
+        echo -e "${RED}❌ No se encontraron archivos SQL en ./sqlfiles/${NC}"
+        echo -e "${YELLOW}⚠️  Los contenedores MySQL necesitan archivos SQL para inicializar las bases de datos${NC}"
+        echo ""
+        echo "Opciones disponibles:"
+        echo "1) Ejecutar primero 'Actualizar bases de datos' para descargar desde Restic"
+        echo "2) Colocar manualmente archivos .sql en el directorio ./sqlfiles/"
+        echo "3) Continuar sin archivos SQL (MySQL iniciará vacío)"
+        echo ""
+
+        read -p "¿Deseas continuar sin archivos SQL? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}❌ Inicio cancelado${NC}"
+            echo -e "${CYAN}💡 Tip: Usa la opción 'Actualizar bases de datos' para descargar archivos SQL${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}⚠️  Continuando sin archivos SQL - MySQL iniciará vacío${NC}"
+        fi
+    else
+        local sql_count=$(ls -1 sqlfiles/*.sql 2>/dev/null | wc -l)
+        echo -e "${GREEN}✅ Encontrados $sql_count archivo(s) SQL en ./sqlfiles/${NC}"
+        echo "   └─ Archivos: $(ls sqlfiles/*.sql 2>/dev/null | xargs -n1 basename | tr '\n' ' ')"
+    fi
+
+    echo ""
     echo "🚀 Iniciando contenedores..."
     
     # Iniciar solo MySQL
@@ -160,11 +322,19 @@ update_databases() {
     
     # Verificar si el archivo .env existe
     if [ ! -f ".env" ]; then
-        echo -e "${RED}❌ Archivo .env no encontrado${NC}"
-        echo -e "${YELLOW}Por favor, copia .env.example a .env y configura las variables${NC}"
-        return 1
+        echo -e "${YELLOW}⚠️  Archivo .env no encontrado${NC}"
+        read -p "¿Deseas crear el archivo .env ahora? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            if ! create_env_file; then
+                return 1
+            fi
+        else
+            echo -e "${YELLOW}Por favor, crea manualmente .env desde .env.example${NC}"
+            return 1
+        fi
     fi
-    
+
     # Verificar variables necesarias
     source .env
     if [ -z "$RESTIC_REPOSITORY" ] || [ -z "$RESTIC_PASSWORD" ] || [ -z "$DB_LIST" ]; then
@@ -269,6 +439,148 @@ EOF
     echo "Para conectarte, usa la opción 'Iniciar entorno'"
 }
 
+# Función para descargar archivo SQL desde URL
+download_sql_from_url() {
+    echo -e "${BLUE}=== Descargar SQL desde URL ===${NC}"
+
+    # Verificar comandos disponibles
+    local download_cmd=""
+    local download_args=""
+
+    if command -v axel &> /dev/null; then
+        download_cmd="axel"
+        download_args="-a"
+        echo -e "${GREEN}✅ Usando axel (descarga acelerada)${NC}"
+    elif command -v wget &> /dev/null; then
+        download_cmd="wget"
+        download_args="-O"
+        echo -e "${GREEN}✅ Usando wget${NC}"
+    elif command -v curl &> /dev/null; then
+        download_cmd="curl"
+        download_args="-L -o"
+        echo -e "${GREEN}✅ Usando curl${NC}"
+    else
+        echo -e "${RED}❌ No se encontró ningún comando de descarga disponible${NC}"
+        echo -e "${YELLOW}Por favor, instala curl, wget o axel${NC}"
+        return 1
+    fi
+
+    echo ""
+    read -p "URL del archivo SQL: " sql_url
+
+    if [ -z "$sql_url" ]; then
+        echo -e "${RED}❌ URL no puede estar vacía${NC}"
+        return 1
+    fi
+
+    # Validar que la URL parece válida
+    if [[ ! "$sql_url" =~ ^https?:// ]]; then
+        echo -e "${YELLOW}⚠️  La URL no parece válida (debe comenzar con http:// o https://)${NC}"
+        read -p "¿Deseas continuar de todas formas? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}❌ Descarga cancelada${NC}"
+            return 0
+        fi
+    fi
+
+    # Extraer nombre del archivo o solicitar uno
+    local filename=$(basename "$sql_url")
+    if [[ ! "$filename" =~ \.sql$ ]] || [ ${#filename} -lt 5 ]; then
+        read -p "Nombre del archivo (con extensión .sql): " custom_filename
+        if [ -n "$custom_filename" ]; then
+            if [[ ! "$custom_filename" =~ \.sql$ ]]; then
+                custom_filename="${custom_filename}.sql"
+            fi
+            filename="$custom_filename"
+        else
+            filename="downloaded_$(date +%Y%m%d_%H%M%S).sql"
+            echo -e "${YELLOW}Usando nombre automático: $filename${NC}"
+        fi
+    fi
+
+    # Crear directorio sqlfiles si no existe
+    if [ ! -d "sqlfiles" ]; then
+        echo "📁 Creando directorio sqlfiles..."
+        mkdir -p sqlfiles
+    fi
+
+    local filepath="sqlfiles/$filename"
+
+    # Verificar si el archivo ya existe
+    if [ -f "$filepath" ]; then
+        echo -e "${YELLOW}⚠️  El archivo $filename ya existe${NC}"
+        read -p "¿Deseas sobrescribirlo? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}❌ Descarga cancelada${NC}"
+            return 0
+        fi
+    fi
+
+    echo ""
+    echo "📥 Descargando archivo SQL..."
+    echo "   └─ URL: $sql_url"
+    echo "   └─ Destino: $filepath"
+    echo "   └─ Comando: $download_cmd"
+    echo ""
+
+    # Ejecutar descarga según el comando disponible
+    case "$download_cmd" in
+        "axel")
+            if axel -a "$sql_url" -o "$filepath"; then
+                download_success=true
+            else
+                download_success=false
+            fi
+            ;;
+        "wget")
+            if wget -O "$filepath" "$sql_url"; then
+                download_success=true
+            else
+                download_success=false
+            fi
+            ;;
+        "curl")
+            if curl -L -o "$filepath" "$sql_url"; then
+                download_success=true
+            else
+                download_success=false
+            fi
+            ;;
+    esac
+
+    if [ "$download_success" = true ]; then
+        # Verificar que el archivo se descargó y tiene contenido
+        if [ -f "$filepath" ] && [ -s "$filepath" ]; then
+            local file_size=$(du -h "$filepath" | cut -f1)
+            echo -e "${GREEN}✅ Descarga completada${NC}"
+            echo "   └─ Archivo: $filepath"
+            echo "   └─ Tamaño: $file_size"
+
+            # Verificar que parece ser un archivo SQL válido
+            if head -n 5 "$filepath" | grep -i -E "(create|insert|drop|use|database)" > /dev/null; then
+                echo -e "${GREEN}   └─ ✓ El archivo parece contener SQL válido${NC}"
+            else
+                echo -e "${YELLOW}   └─ ⚠️  El archivo puede no contener SQL válido${NC}"
+                echo "       Primeras líneas del archivo:"
+                head -n 3 "$filepath" | sed 's/^/       /'
+            fi
+        else
+            echo -e "${RED}❌ Error: El archivo se descargó pero está vacío${NC}"
+            rm -f "$filepath" 2>/dev/null
+            return 1
+        fi
+    else
+        echo -e "${RED}❌ Error durante la descarga${NC}"
+        rm -f "$filepath" 2>/dev/null
+        return 1
+    fi
+
+    echo ""
+    echo -e "${CYAN}💡 Tip: Ahora puedes usar 'Iniciar entorno' para cargar la base de datos${NC}"
+}
+
 # Función para eliminar el entorno completamente
 remove_environment() {
     echo -e "${BLUE}=== Eliminando Entorno ===${NC}"
@@ -303,14 +615,15 @@ show_menu() {
     echo -e "${CYAN}Selecciona una opción:${NC}"
     echo ""
     echo "1) 🚀 Iniciar entorno"
-    echo "2) 🛑 Detener entorno"  
+    echo "2) 🛑 Detener entorno"
     echo "3) 📋 Visualizar logs"
     echo "4) 📊 Mostrar estado"
     echo "5) 🔄 Actualizar bases de datos"
-    echo "6) 🗑️  Eliminar entorno (⚠️  PELIGROSO)"
-    echo "7) ❌ Salir"
+    echo "6) 📥 Descargar SQL desde URL"
+    echo "7) 🗑️  Eliminar entorno (⚠️  PELIGROSO)"
+    echo "8) ❌ Salir"
     echo ""
-    echo -n "Opción [1-7]: "
+    echo -n "Opción [1-8]: "
 }
 
 # Función principal
@@ -343,14 +656,17 @@ main() {
                 update_databases
                 ;;
             6)
-                remove_environment
+                download_sql_from_url
                 ;;
             7)
+                remove_environment
+                ;;
+            8)
                 echo -e "${GREEN}👋 ¡Hasta luego!${NC}"
                 exit 0
                 ;;
             *)
-                echo -e "${RED}❌ Opción inválida. Por favor selecciona 1-7.${NC}"
+                echo -e "${RED}❌ Opción inválida. Por favor selecciona 1-8.${NC}"
                 ;;
         esac
         
