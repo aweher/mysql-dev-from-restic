@@ -5,7 +5,7 @@ Este código es propietario y confidencial. Todos los derechos reservados.
 
 # Backup MySQL Dev - Restore from Backup
 
-Docker container que restaura bases de datos MySQL desde backups almacenados en Restic para entornos de desarrollo.
+Sistema completo de restauración de bases de datos MySQL desde backups almacenados en Restic para entornos de desarrollo, con interfaz de línea de comandos interactiva.
 
 ## Descripción
 
@@ -27,14 +27,29 @@ Este proyecto crea un contenedor MySQL basado en Percona XtraDB Cluster que auto
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
+## Características Principales
+
+- **🚀 Inicio rápido**: Menú interactivo para gestión completa del entorno
+- **📦 Verificación inteligente**: Detecta archivos SQL faltantes o desactualizados
+- **🔄 Actualización automática**: Descarga snapshots recientes desde Restic
+- **🐳 Docker Compose**: Configuración completa con phpMyAdmin opcional
+- **🛠️ Configuración asistida**: Creación automática de archivos `.env`
+- **📊 Diagnósticos**: Herramientas para verificar repositorio Restic
+- **📥 Descarga desde URL**: Capacidad de importar SQL desde URLs externas
+
 ## Estructura del Proyecto
 
 ```
-├── Dockerfile
+├── Dockerfile                      # Imagen MySQL con Restic
+├── docker-compose.yml             # Orquestación de servicios
+├── menu.sh                        # 🎯 Interfaz principal interactiva
 ├── scripts/
-│   └── 10-fetch-restic-dumps.sh    # Script de descarga desde Restic
+│   ├── build-fetch-sql.sh         # Script de construcción
+│   └── download-sql-files.sh      # Descarga desde Restic
 ├── config/
-│   └── pxc-tweaks.cnf              # Configuración MySQL
+│   └── pxc-tweaks.cnf             # Configuración MySQL optimizada
+├── sqlfiles/                      # 📁 Archivos SQL descargados
+├── .env.example                   # Plantilla de configuración
 └── README.md
 ```
 
@@ -57,68 +72,94 @@ Este proyecto crea un contenedor MySQL basado en Percona XtraDB Cluster que auto
 | `RESTIC_TAG` | Filtrar por tag específico | *(sin filtro)* | `mysqldump` |
 | `RESTIC_SNAPSHOT` | ID de snapshot específico a usar | *(último disponible)* | `a58161e7` |
 
-## Uso
+## 🚀 Inicio Rápido
 
-### 1. Construcción de la imagen
-
-```bash
-docker build -t backup-mysql-dev .
-```
-
-### 2. Ejecución básica
+### Método Recomendado: Menú Interactivo
 
 ```bash
-docker run -d \
-  --name mysql-dev \
-  -e RESTIC_REPOSITORY="rest:https://restic.example.com/repo" \
-  -e RESTIC_PASSWORD="mi_password" \
-  -e DB_LIST="backup,intranet,apigateway" \
-  -p 3306:3306 \
-  backup-mysql-dev
+# 1. Clonar o descargar el proyecto
+cd backup-mysql-dev-mysql-dev-frombackup
+
+# 2. Ejecutar el menú principal
+./menu.sh
 ```
 
-### 3. Docker Compose
+El menú interactivo te guiará paso a paso para:
+- ✅ Crear archivo `.env` con configuración asistida
+- ✅ Verificar conectividad con Restic
+- ✅ Descargar bases de datos automáticamente
+- ✅ Iniciar el entorno completo
 
-```yaml
-version: '3.8'
+### Opciones del Menú Principal
 
-services:
-  mysql-dev:
-    build: .
-    ports:
-      - "3306:3306"
-    environment:
-      RESTIC_REPOSITORY: "rest:https://restic.example.com/repo"
-      RESTIC_PASSWORD: "mi_password_secreto"
-      DB_LIST: "backup,intranet,apigateway"
-      RESTIC_HOST: "pxc3.dc.backup.net.ar"
-      RESTIC_TAG: "mysqldump"
-      
-      # Variables MySQL estándar
-      MYSQL_ROOT_PASSWORD: "root_password"
-      MYSQL_USER: "dev_user"
-      MYSQL_PASSWORD: "dev_password"
-      
-    volumes:
-      - mysql_data:/var/lib/mysql
-      
-volumes:
-  mysql_data:
+```
+============================================
+    Backup MySQL Dev - Control Panel
+============================================
+
+1) 🚀 Iniciar entorno
+2) 🛑 Detener entorno
+3) 📋 Visualizar logs
+4) 📊 Mostrar estado
+5) 🔄 Actualizar bases de datos
+6) 📥 Descargar SQL desde URL
+7) 🔍 Diagnosticar repositorio Restic
+8) 🗑️  Eliminar entorno (⚠️  PELIGROSO)
+9) ❌ Salir
+```
+
+### Configuración Manual (Avanzado)
+
+Si prefieres configurar manualmente:
+
+```bash
+# 1. Crear archivo .env desde la plantilla
+cp .env.example .env
+
+# 2. Editar configuración
+nano .env
+
+# 3. Iniciar con Docker Compose
+docker compose up --build -d
 ```
 
 ## Funcionamiento
 
-### Proceso de Inicialización
+### Proceso de Inicialización Inteligente
 
-1. **Verificación**: Comprueba si MySQL ya está inicializado
-2. **Conexión a Restic**: Se conecta al repositorio con las credenciales
-3. **Selección de Snapshot**: 
-   - Usa `RESTIC_SNAPSHOT` si está definido
-   - Sino, busca el snapshot más reciente (con filtros opcionales)
-4. **Descarga de Dumps**: Para cada base de datos en `DB_LIST`:
-   - Busca `/<db_name>.sql` en el snapshot
-   - Lo descarga como `/docker-entrypoint-initdb.d/50-<db_name>.sql`
-5. **Importación**: MySQL importa automáticamente todos los `.sql`
+Cuando ejecutas "🚀 Iniciar entorno", el sistema realiza:
+
+1. **🔍 Verificación de Archivos SQL**:
+   - Revisa si existen archivos SQL para cada BD en `DB_LIST`
+   - Detecta archivos desactualizados (>7 días)
+   - Muestra estado detallado con fechas
+
+2. **🤖 Decisión Automática**:
+   - Si hay archivos faltantes/antiguos → Pregunta si actualizar desde Restic
+   - Si todos están actualizados → Continúa directamente
+   - Opción por defecto: Sí actualizar `(S/n)`
+
+3. **📥 Descarga Inteligente** (si se solicita):
+   - Ejecuta `scripts/download-sql-files.sh`
+   - Busca snapshots más recientes en Restic
+   - Verifica qué archivos siguen faltando
+
+4. **🚀 Inicio de Servicios**:
+   - Inicia MySQL con archivos SQL actualizados
+   - Pregunta opcionalmente por phpMyAdmin
+   - Muestra información de conexión
+
+### Arquitectura del Sistema
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Restic Repo   │───▶│  Smart Checker   │───▶│   MySQL Ready   │
+│                 │    │                  │    │                 │
+│ Snapshots con   │    │ • Detecta falta  │    │ • BD actuales   │
+│ tags mysqldump  │    │ • Verifica edad  │    │ • phpMyAdmin    │
+│                 │    │ • Actualiza auto │    │ • Listo para uso│
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
 
 ### Estructura de Restic Esperada
 
@@ -160,54 +201,180 @@ sql_mode=STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_
 
 Esta configuración excluye `ONLY_FULL_GROUP_BY` para mayor compatibilidad.
 
-## Solución de Problemas
+## 🛠️ Herramientas de Diagnóstico
 
-### Error: "no snapshot found matching filters"
+### Opción 7: Diagnosticar Repositorio Restic
 
-```bash
-# Verificar snapshots disponibles
-restic -r rest:https://restic.example.com/repo snapshots
+Desde el menú principal, esta opción realiza:
 
-# Verificar filtros
-docker run --rm -e RESTIC_REPOSITORY="..." -e RESTIC_PASSWORD="..." \
-  backup-mysql-dev restic snapshots --json | jq '.[].tags'
+```
+🔍 Diagnosticar repositorio Restic
+├── ✅ Verificar conectividad al repositorio
+├── 📊 Mostrar estadísticas (tamaño, snapshots)
+├── 📋 Listar todos los snapshots disponibles
+├── 🏷️  Mostrar tags únicos en el repositorio
+└── 🔍 Buscar snapshots específicos para tus BDs
 ```
 
-### Error: "no .sql found for DB"
-
-- Verificar que la base de datos existe en el snapshot
-- Comprobar la estructura de paths en Restic
-- Revisar variable `DUMPS_BASE_PATH`
-
-### MySQL no inicia
+### Comandos de Diagnóstico Manual
 
 ```bash
-# Ver logs detallados
-docker logs mysql-dev -f
+# 1. Verificar conectividad básica
+./menu.sh  # Opción 7
 
-# Verificar permisos
-docker exec mysql-dev ls -la /docker-entrypoint-initdb.d/
+# 2. Ver logs en tiempo real
+./menu.sh  # Opción 3
+
+# 3. Verificar estado completo
+./menu.sh  # Opción 4
 ```
 
-## Desarrollo
+## 🚨 Solución de Problemas
 
-### Modificar el script de fetch
+### ❌ Error: "no snapshot found matching filters"
 
-1. Editar `scripts/10-fetch-restic-dumps.sh`
-2. Reconstruir la imagen: `docker build -t backup-mysql-dev .`
+**Causa**: El filtro `RESTIC_HOST` no coincide con el hostname real.
 
-### Agregar configuraciones MySQL
+**Solución**:
+1. Ejecutar `./menu.sh` → Opción 7 (Diagnosticar Restic)
+2. Verificar el hostname real en la lista de snapshots
+3. Corregir `RESTIC_HOST` en archivo `.env`
 
-1. Editar `config/pxc-tweaks.cnf`
-2. Reconstruir la imagen
+### ❌ Error: "no .sql found for DB"
 
-## Consideraciones de Seguridad
+**Causa**: La base de datos no existe en el snapshot o el nombre no coincide.
 
-- **Nunca hardcodear** `RESTIC_PASSWORD` en el Dockerfile
-- Usar **Docker secrets** o **variables de entorno seguras**
-- El contenedor **no persiste credenciales** después de la inicialización
-- Los dumps descargados son **temporales** y se eliminan con el contenedor
+**Solución**:
+1. Usar diagnóstico Restic para ver snapshots disponibles
+2. Verificar que existe `/<database_name>.sql` en el snapshot
+3. Ajustar `DB_LIST` en `.env` con nombres exactos
 
-## Licencia
+### 🐳 MySQL no inicia o falla la importación
 
-Este proyecto es para uso interno de backup-mysql-dev.
+**Diagnosis**:
+```bash
+./menu.sh  # Opción 3 para ver logs
+```
+
+**Soluciones comunes**:
+- Verificar que los archivos SQL son válidos
+- Comprobar permisos del volumen de datos
+- Reiniciar eliminando el volumen: Opción 8 (Eliminar entorno)
+
+## 🛡️ Características de Seguridad
+
+- **🔐 Credenciales seguras**: Las credenciales Restic no se almacenan en la imagen
+- **🗂️ Datos persistentes**: Volúmenes Docker para mantener datos entre reinicios
+- **🚫 No hardcoding**: Todas las credenciales via variables de entorno
+- **🔄 Limpieza automática**: Archivos temporales se eliminan después de la importación
+- **👤 Usuarios MySQL**: Configuración de usuarios no-root para desarrollo
+
+## 📋 Casos de Uso
+
+### 1. Desarrollador Individual
+```bash
+# Configurar una vez
+./menu.sh  # Crear .env y descargar BDs
+
+# Uso diario
+./menu.sh  # Opción 1: Iniciar entorno
+# ... desarrollar ...
+./menu.sh  # Opción 2: Detener entorno
+```
+
+### 2. Equipo de Desarrollo
+```bash
+# Actualizar con datos frescos semanalmente
+./menu.sh  # Opción 5: Actualizar bases de datos
+
+# Mantener entorno corriendo
+./menu.sh  # Opción 4: Mostrar estado
+```
+
+### 3. Testing con Datos Específicos
+```bash
+# Descargar SQL específico desde URL
+./menu.sh  # Opción 6: Descargar SQL desde URL
+
+# O usar snapshot específico
+# Editar .env: RESTIC_SNAPSHOT=a58161e7
+```
+
+## 🔧 Desarrollo y Personalización
+
+### Modificar Scripts de Descarga
+
+```bash
+# 1. Editar script de construcción
+nano scripts/build-fetch-sql.sh
+
+# 2. Editar script de descarga en tiempo real
+nano scripts/download-sql-files.sh
+
+# 3. Reconstruir para cambios en build-time
+docker compose up --build -d
+```
+
+### Personalizar Configuración MySQL
+
+```bash
+# Editar configuraciones optimizadas
+nano config/pxc-tweaks.cnf
+
+# Aplicar cambios
+docker compose up --build -d
+```
+
+## 🎯 Comandos Rápidos de Referencia
+
+```bash
+# Inicio completo desde cero
+./menu.sh
+# Seleccionar: 1 (Iniciar entorno) - Te guiará paso a paso
+
+# Verificar si todo está funcionando
+./menu.sh
+# Seleccionar: 4 (Mostrar estado)
+
+# Ver logs en tiempo real
+./menu.sh
+# Seleccionar: 3 (Visualizar logs)
+
+# Actualizar bases de datos con snapshots frescos
+./menu.sh
+# Seleccionar: 5 (Actualizar bases de datos)
+
+# Diagnosticar problemas con Restic
+./menu.sh
+# Seleccionar: 7 (Diagnosticar repositorio Restic)
+
+# Reiniciar completamente (borra todos los datos)
+./menu.sh
+# Seleccionar: 8 (Eliminar entorno) - ¡CUIDADO!
+```
+
+## 📞 Conexión a MySQL
+
+Una vez iniciado el entorno:
+
+```bash
+# Desde línea de comandos local
+mysql -h 127.0.0.1 -P 3306 -u root -p
+# Password: configurado en .env (MYSQL_ROOT_PASSWORD)
+
+# O usar phpMyAdmin (si está habilitado)
+# http://localhost:8080
+# Usuario: root
+# Password: el configurado en .env
+```
+
+## 📚 Más Información
+
+- **Configuración**: Todos los ajustes en archivo `.env`
+- **Logs**: Accesibles desde el menú (Opción 3) o `docker logs backup-mysql-dev`
+- **Datos**: Persistentes en volumen Docker `backup_mysql_dev_data`
+- **Red**: Servicios en red `backup-dev-network`
+
+---
+
+**© 2025 Ariel S. Weher - Uso interno backup-mysql-dev**
