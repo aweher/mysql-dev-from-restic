@@ -209,7 +209,7 @@ start_environment() {
     # Verificar si el archivo .env existe
     if [ ! -f ".env" ]; then
         echo -e "${YELLOW}⚠️  Archivo .env no encontrado${NC}"
-        read -p "¿Deseas crear el archivo .env ahora? (Y/n): " -n 1 -r
+        read -p "¿Deseas crear el archivo .env ahora? (S/n): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then
             if ! create_env_file; then
@@ -221,9 +221,103 @@ start_environment() {
         fi
     fi
 
-    # Verificar que existan archivos SQL descargados
-    echo "🔍 Verificando archivos SQL descargados..."
-    if [ ! -d "sqlfiles" ] || [ -z "$(ls -A sqlfiles/*.sql 2>/dev/null)" ]; then
+    # Verificar que existan archivos SQL para las bases de datos requeridas
+    echo "🔍 Verificando archivos SQL para las bases de datos configuradas..."
+
+    # Cargar configuración para obtener DB_LIST
+    if [ -f ".env" ]; then
+        source .env
+    fi
+
+    local missing_dbs=()
+    local found_dbs=()
+    local outdated_files=0
+
+    if [ -n "$DB_LIST" ] && [ -d "sqlfiles" ]; then
+        # Verificar cada base de datos en DB_LIST
+        IFS=',' read -r -a DBS <<< "$DB_LIST"
+        for db in "${DBS[@]}"; do
+            db_trim="$(echo "$db" | xargs)"
+
+            # Buscar archivos SQL para esta base de datos
+            local sql_files=($(find sqlfiles -name "${db_trim}*.sql" -type f 2>/dev/null))
+
+            if [ ${#sql_files[@]} -eq 0 ]; then
+                missing_dbs+=("$db_trim")
+            else
+                found_dbs+=("$db_trim")
+
+                # Verificar si los archivos son antiguos (más de 7 días)
+                local newest_file=$(find sqlfiles -name "${db_trim}*.sql" -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
+                if [ -n "$newest_file" ]; then
+                    local file_age=$((($(date +%s) - $(stat -c %Y "$newest_file" 2>/dev/null || echo 0)) / 86400))
+                    if [ "$file_age" -gt 7 ]; then
+                        ((outdated_files++))
+                    fi
+                fi
+            fi
+        done
+    fi
+
+    # Mostrar estado de los archivos
+    if [ ${#found_dbs[@]} -gt 0 ]; then
+        echo -e "${GREEN}✅ Archivos SQL encontrados para: ${found_dbs[*]}${NC}"
+        for db in "${found_dbs[@]}"; do
+            local sql_files=($(find sqlfiles -name "${db}*.sql" -type f 2>/dev/null))
+            local newest_file=$(find sqlfiles -name "${db}*.sql" -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
+            if [ -n "$newest_file" ]; then
+                local file_date=$(stat -c %y "$newest_file" 2>/dev/null | cut -d' ' -f1)
+                echo "   └─ $db: $(basename "$newest_file") (${file_date})"
+            fi
+        done
+    fi
+
+    if [ ${#missing_dbs[@]} -gt 0 ]; then
+        echo -e "${YELLOW}⚠️  Archivos SQL faltantes para: ${missing_dbs[*]}${NC}"
+    fi
+
+    if [ "$outdated_files" -gt 0 ]; then
+        echo -e "${YELLOW}⚠️  $outdated_files archivo(s) tienen más de 7 días de antigüedad${NC}"
+    fi
+
+    # Decisión sobre qué hacer
+    if [ ${#missing_dbs[@]} -gt 0 ] || [ "$outdated_files" -gt 0 ]; then
+        echo ""
+        echo -e "${CYAN}Opciones disponibles:${NC}"
+        echo "1) Buscar y descargar snapshots actualizados desde Restic"
+        echo "2) Continuar con los archivos SQL existentes"
+        if [ ${#missing_dbs[@]} -gt 0 ]; then
+            echo "3) Continuar sin las bases de datos faltantes (MySQL iniciará parcialmente)"
+        fi
+        echo ""
+
+        read -p "¿Deseas buscar snapshots actualizados en Restic? (S/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            echo "📥 Buscando y descargando snapshots actualizados..."
+            if ./scripts/download-sql-files.sh; then
+                echo -e "${GREEN}✅ Archivos SQL actualizados desde Restic${NC}"
+
+                # Verificar nuevamente después de la descarga
+                local final_missing=()
+                for db in "${missing_dbs[@]}"; do
+                    if [ ! -f "sqlfiles/${db}"*.sql ]; then
+                        final_missing+=("$db")
+                    fi
+                done
+
+                if [ ${#final_missing[@]} -gt 0 ]; then
+                    echo -e "${YELLOW}⚠️  Aún faltan archivos para: ${final_missing[*]}${NC}"
+                    echo -e "${YELLOW}⚠️  Estas bases de datos no se crearán al inicializar MySQL${NC}"
+                fi
+            else
+                echo -e "${RED}❌ Error descargando archivos desde Restic${NC}"
+                echo -e "${YELLOW}Continuando con archivos existentes...${NC}"
+            fi
+        else
+            echo -e "${YELLOW}Continuando con archivos SQL existentes...${NC}"
+        fi
+    elif [ ! -d "sqlfiles" ] || [ -z "$(ls -A sqlfiles/*.sql 2>/dev/null)" ]; then
         echo -e "${RED}❌ No se encontraron archivos SQL en ./sqlfiles/${NC}"
         echo -e "${YELLOW}⚠️  Los contenedores MySQL necesitan archivos SQL para inicializar las bases de datos${NC}"
         echo ""
@@ -233,9 +327,9 @@ start_environment() {
         echo "3) Continuar sin archivos SQL (MySQL iniciará vacío)"
         echo ""
 
-        read -p "¿Deseas continuar sin archivos SQL? (y/N): " -n 1 -r
+        read -p "¿Deseas continuar sin archivos SQL? (s/N): " -n 1 -r
         echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if [[ ! $REPLY =~ ^[Ss]$ ]]; then
             echo -e "${YELLOW}❌ Inicio cancelado${NC}"
             echo -e "${CYAN}💡 Tip: Usa la opción 'Actualizar bases de datos' para descargar archivos SQL${NC}"
             return 0
@@ -243,9 +337,7 @@ start_environment() {
             echo -e "${YELLOW}⚠️  Continuando sin archivos SQL - MySQL iniciará vacío${NC}"
         fi
     else
-        local sql_count=$(ls -1 sqlfiles/*.sql 2>/dev/null | wc -l)
-        echo -e "${GREEN}✅ Encontrados $sql_count archivo(s) SQL en ./sqlfiles/${NC}"
-        echo "   └─ Archivos: $(ls sqlfiles/*.sql 2>/dev/null | xargs -n1 basename | tr '\n' ' ')"
+        echo -e "${GREEN}✅ Todos los archivos SQL están disponibles y actualizados${NC}"
     fi
 
     echo ""
@@ -256,9 +348,9 @@ start_environment() {
         echo -e "${GREEN}✅ MySQL container iniciado${NC}"
         
         # Preguntar si desea iniciar phpMyAdmin
-        read -p "¿Deseas iniciar phpMyAdmin también? (y/N): " -n 1 -r
+        read -p "¿Deseas iniciar phpMyAdmin también? (s/N): " -n 1 -r
         echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [[ $REPLY =~ ^[Ss]$ ]]; then
             echo "🚀 Iniciando phpMyAdmin..."
             if docker compose --profile admin up -d phpmyadmin; then
                 echo -e "${GREEN}✅ phpMyAdmin iniciado en http://localhost:8080${NC}"
@@ -323,7 +415,7 @@ update_databases() {
     # Verificar si el archivo .env existe
     if [ ! -f ".env" ]; then
         echo -e "${YELLOW}⚠️  Archivo .env no encontrado${NC}"
-        read -p "¿Deseas crear el archivo .env ahora? (Y/n): " -n 1 -r
+        read -p "¿Deseas crear el archivo .env ahora? (S/n): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then
             if ! create_env_file; then
@@ -349,9 +441,9 @@ update_databases() {
     echo "Repositorio: $RESTIC_REPOSITORY"
     echo ""
     
-    read -p "¿Deseas continuar? (y/N): " -n 1 -r
+    read -p "¿Deseas continuar? (s/N): " -n 1 -r
     echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ ! $REPLY =~ ^[Ss]$ ]]; then
         echo -e "${YELLOW}❌ Operación cancelada${NC}"
         return 0
     fi
@@ -562,9 +654,9 @@ download_sql_from_url() {
     # Validar que la URL parece válida
     if [[ ! "$sql_url" =~ ^https?:// ]]; then
         echo -e "${YELLOW}⚠️  La URL no parece válida (debe comenzar con http:// o https://)${NC}"
-        read -p "¿Deseas continuar de todas formas? (y/N): " -n 1 -r
+        read -p "¿Deseas continuar de todas formas? (s/N): " -n 1 -r
         echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if [[ ! $REPLY =~ ^[Ss]$ ]]; then
             echo -e "${YELLOW}❌ Descarga cancelada${NC}"
             return 0
         fi
@@ -596,9 +688,9 @@ download_sql_from_url() {
     # Verificar si el archivo ya existe
     if [ -f "$filepath" ]; then
         echo -e "${YELLOW}⚠️  El archivo $filename ya existe${NC}"
-        read -p "¿Deseas sobrescribirlo? (y/N): " -n 1 -r
+        read -p "¿Deseas sobrescribirlo? (s/N): " -n 1 -r
         echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if [[ ! $REPLY =~ ^[Ss]$ ]]; then
             echo -e "${YELLOW}❌ Descarga cancelada${NC}"
             return 0
         fi
