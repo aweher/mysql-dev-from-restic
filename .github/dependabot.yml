@@ -14,8 +14,6 @@ updates:
     labels:
       - "dependencies"
       - "docker"
-    reviewers:
-      - "aweher"
 
   # Monitor Docker Compose file
   - package-ecosystem: "docker"
@@ -31,8 +29,6 @@ updates:
     labels:
       - "dependencies"
       - "docker-compose"
-    reviewers:
-      - "aweher"
 
   # Monitor GitHub Actions (if any are added later)
   - package-ecosystem: "github-actions"
@@ -48,5 +44,3 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
-    reviewers:
-      - "aweher"
