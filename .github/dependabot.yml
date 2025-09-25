@@ -1,0 +1,52 @@
+version: 2
+updates:
+  # Monitor Dockerfile for base image updates
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "docker"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+    reviewers:
+      - "aweher"
+
+  # Monitor Docker Compose file
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "docker-compose"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker-compose"
+    reviewers:
+      - "aweher"
+
+  # Monitor GitHub Actions (if any are added later)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "github-actions"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "aweher"
