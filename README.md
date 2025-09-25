@@ -117,7 +117,7 @@ Si prefieres configurar manualmente:
 cp .env.example .env
 
 # 2. Editar configuración
-nano .env
+vim .env
 
 # 3. Iniciar con Docker Compose
 docker compose up --build -d
@@ -268,6 +268,12 @@ Desde el menú principal, esta opción realiza:
 - **🚫 No hardcoding**: Todas las credenciales via variables de entorno
 - **🔄 Limpieza automática**: Archivos temporales se eliminan después de la importación
 - **👤 Usuarios MySQL**: Configuración de usuarios no-root para desarrollo
+- **🤖 CI/CD Integrado**: GitHub Actions para escaneo de seguridad automático
+  - Escaneo de vulnerabilidades con Trivy
+  - Análisis de secretos con GitLeaks y TruffleHog
+  - Linting de Dockerfile con Hadolint
+  - Análisis estático de scripts con ShellCheck
+  - Validación de Docker Compose
 
 ## 📋 Casos de Uso
 
@@ -306,10 +312,10 @@ Desde el menú principal, esta opción realiza:
 
 ```bash
 # 1. Editar script de construcción
-nano scripts/build-fetch-sql.sh
+vim scripts/build-fetch-sql.sh
 
 # 2. Editar script de descarga en tiempo real
-nano scripts/download-sql-files.sh
+vim scripts/download-sql-files.sh
 
 # 3. Reconstruir para cambios en build-time
 docker compose up --build -d
@@ -319,7 +325,7 @@ docker compose up --build -d
 
 ```bash
 # Editar configuraciones optimizadas
-nano config/pxc-tweaks.cnf
+vim config/pxc-tweaks.cnf
 
 # Aplicar cambios
 docker compose up --build -d
