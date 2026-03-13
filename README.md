@@ -7,6 +7,13 @@ Este código es propietario y confidencial. Todos los derechos reservados.
 
 Sistema completo de restauración de bases de datos MySQL desde backups almacenados en Restic para entornos de desarrollo, con interfaz de línea de comandos interactiva.
 
+## TL;DR
+
+```bash
+cp .env.example .env && vim .env  # configurar credenciales Restic y MySQL
+./menu.sh                          # menú interactivo para todo lo demás
+```
+
 ## Descripción
 
 Este proyecto crea un contenedor MySQL basado en Percona XtraDB Cluster que automáticamente:
