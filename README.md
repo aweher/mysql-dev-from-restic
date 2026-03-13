@@ -78,7 +78,7 @@ Este proyecto crea un contenedor MySQL basado en Percona XtraDB Cluster que auto
 
 ```bash
 # 1. Clonar o descargar el proyecto
-cd backup-mysql-dev-mysql-dev-frombackup
+cd backup-mysql-dev-frombackup
 
 # 2. Ejecutar el menú principal
 ./menu.sh
@@ -383,4 +383,4 @@ mysql -h 127.0.0.1 -P 3306 -u root -p
 
 ---
 
-**© 2025 Ariel S. Weher - Uso interno backup-mysql-dev**
+**© 2025 Ariel S. Weher**
